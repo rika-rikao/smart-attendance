@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+  <link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#0056b3">
+<link rel="apple-touch-icon" href="./icon-192.png">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>スマート電子出席簿</title>
@@ -374,6 +377,14 @@
   </div>
 
   <script>
+    // Service Workerの登録 (PWA用)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then((registration) => console.log('ServiceWorker 登録成功:', registration.scope))
+      .catch((error) => console.log('ServiceWorker 登録失敗:', error));
+  });
+}
     window.onerror = function(msg, url, line) { document.getElementById('error-log').innerText = `エラー: ${msg} (${line}行目)`; };
 
     const CACHE_KEY = 'smart_attendance_v18'; 

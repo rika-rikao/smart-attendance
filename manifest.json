@@ -1,0 +1,21 @@
+{
+  "name": "スマート電子出席簿",
+  "short_name": "出席簿",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#0056b3",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>スマート電子出席簿</title>
+  <style>
+    /* ==========================================
+       1. CSS変数・ベーススタイル
+       ========================================== */
+    :root { 
+      --bg-color: #f4f6f9; --primary: #0056b3; 
+      --present: #ffffff; --absent: #ffebee; --late: #fff8e1; --early: #e3f2fd; --official: #e8f5e9; --away: #f3e5f5; --sleep: #e8eaf6;
+      /* ヘッダー高さ計算用変数 */
+      --header-h-portrait: 100px;
+      --header-h-landscape: 90px;
+    }
+    
+    /* ヘッダー縮小時 */
+    body.header-collapsed {
+      --header-h-portrait: 45px;
+      --header-h-landscape: 45px;
+    }
+
+    body { 
+      font-family: sans-serif; background-color: var(--bg-color); margin: 0; padding: 0; 
+      user-select: none; display: flex; flex-direction: column; min-height: 100vh; height: 100vh; overflow: hidden; 
+    }
+    
+    button, .seat, .tab, select, input { touch-action: manipulation; }
+
+    /* ==========================================
+       2. ユーティリティクラス
+       ========================================== */
+    .hidden { display: none !important; }
+    .text-center { text-align: center; }
+    .text-muted { color: #888; }
+    
+    .btn-success { background-color: #4caf50; color: white; border-color: #388e3c; }
+    .btn-danger { background-color: #ffebee; color: #d32f2f; border-color: #d32f2f; }
+    .btn-danger-outline { color: red; border-color: red; background-color: white; }
+    .btn-blue-outline { background-color: #e1f5fe; border-color: #0288d1; color: #01579b; }
+    .btn-blue-solid { background-color: #0288d1; color: white; border-color: #01579b; }
+    .btn-purple-outline { background-color: #ede7f6; border-color: #b39ddb; color: #5e35b1; }
+    .tab-settings { background-color: #fff3e0; color: #e65100; }
+
+    /* ==========================================
+       3. ログインオーバーレイ
+       ========================================== */
+    #login-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; z-index: 9999; color: white;
+    }
+    .login-box {
+      background: #fff; color: #333; padding: 30px; border-radius: 12px;
+      text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); max-width: 400px; width: 90%;
+    }
+    .login-box h2 { margin-top: 0; color: var(--primary); }
+    .login-btn {
+      display: block; width: 100%; padding: 12px; margin: 10px 0;
+      border: 1px solid #ccc; border-radius: 6px; font-weight: bold; cursor: pointer;
+      font-size: 14px; transition: 0.2s;
+    }
+    .login-btn:hover { background: #eee; }
+    .btn-google { background: #4285F4; color: white; border: none; }
+    .btn-google:hover { background: #3367D6; }
+
+    /* ==========================================
+       4. 固定ヘッダー領域 (折りたたみ対応)
+       ========================================== */
+    #sticky-header-container {
+      position: sticky; top: 0; z-index: 1000;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2); background-color: var(--bg-color); flex-shrink: 0;
+    }
+    header { background-color: var(--primary); color: white; padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: space-between; align-items: center; }
+    .header-controls { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+    
+    #current-datetime { font-size: 11px; font-weight: bold; background: rgba(0,0,0,0.25); padding: 3px 6px; border-radius: 4px; }
+    #current-subject { font-size: 13px; font-weight: bold; color: #ffeb3b; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; border: 1px dashed #ffeb3b; }
+    
+    select, button, input { padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 12px; font-family: inherit; }
+    button { background-color: #fff; color: #333; font-weight: bold; cursor: pointer; }
+    button.active-mode { background-color: #ff9800; color: white; border-color: #e65100; }
+    
+    .tabs { display: flex; gap: 4px; background: #ddd; padding: 4px; justify-content: center; align-items: center; flex-wrap: wrap; }
+    .tab { padding: 4px 10px; cursor: pointer; background: #eee; border-radius: 4px; font-weight: bold; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+    .tab.active { background-color: var(--primary); color: white; }
+
+    .header-collapsed .collapse-target { display: none !important; }
+
+    /* ==========================================
+       5. メインコンテナ・座席エリア (フレキシブル全画面UI)
+       ========================================== */
+    #main-container { 
+      flex-grow: 1; display: flex; flex-direction: column; align-items: center; 
+      box-sizing: border-box; overflow-y: auto; width: 100%;
+    }
+    
+    .edit-controls { 
+      display: none; padding: 4px; gap: 4px; flex-wrap: wrap; justify-content: center; 
+      width: 100%; background: var(--bg-color); z-index: 900; border-bottom: 1px dashed #ccc; flex-shrink: 0;
+    }
+    body.edit-mode .edit-controls { display: flex; }
+
+    #attendance-views {
+      width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; flex-grow: 1;
+    }
+
+    #seating-area { 
+      width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; 
+      flex-grow: 1; box-sizing: border-box;
+    }
+    #seating-area.teacher-view-area { flex-direction: column-reverse; }
+    
+    .desk-marker { 
+      text-align: center; font-weight: bold; padding: 4px 30px; background: #ddd; 
+      border: 2px solid #bbb; border-radius: 4px; font-size: 12px; flex-shrink: 0; margin: 2px 0;
+    }
+    
+    #seating-grid { 
+      display: grid; gap: 4px; padding: 4px; background: #fff; border-radius: 8px; 
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.3s; 
+      width: 100%; height: 0; flex-grow: 1; box-sizing: border-box;
+    }
+    #seating-grid.teacher-view { transform: rotate(180deg); }
+    
+    /* 座席セル (親グリッドいっぱいに広がる) */
+    .seat { 
+      width: 100%; height: 100%; border: 2px solid #ccc; border-radius: 6px; display: flex; flex-direction: column; 
+      align-items: center; justify-content: center; position: relative; cursor: pointer; overflow: hidden; 
+      box-sizing: border-box; background-color: var(--present); transition: box-shadow 0.1s; 
+    }
+    #seating-grid.teacher-view .seat { transform: rotate(180deg); }
+    
+    .seat::before { content: ""; position: absolute; top: 10%; bottom: 10%; left: 50%; width: 1px; background-color: rgba(0,0,0,0.1); border-left: 1px dashed rgba(0,0,0,0.2); pointer-events: none; z-index: 3; }
+    .seat.hover-right { box-shadow: inset -45px 0 20px -20px rgba(255, 152, 0, 0.4); }
+    .seat.hover-left { box-shadow: inset 45px 0 20px -20px rgba(33, 150, 243, 0.4); }
+
+    .seat[data-status="1"] { background-color: var(--absent); border-color: #d32f2f; }
+    .seat[data-status="2"] { background-color: var(--late); border-color: #fbc02d; }
+    .seat[data-status="3"] { background-color: var(--early); border-color: #1976d2; }
+    .seat[data-status="4"] { background-color: var(--official); border-color: #388e3c; }
+    .seat[data-status="5"] { background-color: var(--away); border-color: #8e24aa; }
+    .seat[data-status="6"] { background-color: var(--sleep); border-color: #3f51b5; }
+    
+    .seat-overlay-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 38px; font-weight: 900; pointer-events: none; opacity: 0.85; text-shadow: 0 0 5px #fff, 0 0 10px #fff; z-index: 2; }
+    .seat[data-status="1"] .seat-overlay-text { color: #d32f2f; }
+    .seat[data-status="2"] .seat-overlay-text { color: #f57f17; }
+    .seat[data-status="3"] .seat-overlay-text { color: #1976d2; }
+    .seat[data-status="4"] .seat-overlay-text { color: #2e7d32; }
+    .seat[data-status="5"] .seat-overlay-text { color: #7b1fa2; }
+    .seat[data-status="6"] .seat-overlay-text { color: #303f9f; }
+
+    /* 各種ボタン (サイズは固定維持) */
+    .btn-toggle-official, .btn-away-trigger, .btn-sleep-trigger { position: absolute; z-index: 5; font-size: 10px; font-weight: bold; border-radius: 3px; border: 1px solid #888; padding: 2px 4px; cursor: pointer; background: #fff; }
+    .btn-toggle-official { top: 1px; right: 1px; color: #555; }
+    .btn-toggle-official.is-active { background: #4caf50; color: #fff; border-color: #2e7d32; }
+    .btn-away-trigger { top: 1px; left: 1px; color: #7b1fa2; }
+    .seat[data-status="5"] .btn-away-trigger { background: #ab47bc; color: white; border-color: #6a1b9a; }
+    .btn-sleep-trigger { bottom: 1px; left: 1px; color: #3f51b5; }
+    .seat[data-status="6"] .btn-sleep-trigger { background: #5c6bc0; color: white; border-color: #3949ab; }
+
+    .time-logs-container { position: absolute; bottom: 1px; right: 1px; width: 60%; display: flex; flex-wrap: wrap; gap: 1px; justify-content: flex-end; z-index: 4; pointer-events: none; }
+    .time-badge { font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.75); color: #fff; padding: 1px 2px; border-radius: 2px; white-space: nowrap; line-height: 1; }
+    .time-badge.badge-return { background: #2e7d32; }
+    .time-badge.badge-active { background: #1565c0; }
+
+    .seat.is-blank { background-color: #e0e0e0 !important; border: 2px dashed #999; }
+    .seat.is-blank::before { display: none; }
+    .seat.is-blank > * { display: none !important; }
+    .seat.is-blank::after { content: "空白"; font-size: 11px; color: #888; font-weight: bold; display: block !important; }
+    body.edit-mode .seat.is-blank { opacity: 0.8; }
+    .seat.selected-for-swap { border: 3px solid #ff9800; background-color: #fff3e0 !important; transform: scale(1.05); }
+
+    .seat-content { display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1; pointer-events: none; width: 100%; height: 100%; }
+    .seat .kana { font-size: 7px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; margin-bottom: 2px; }
+    .seat .name { font-size: 11px; font-weight: bold; line-height: 1; margin-bottom: 1px; }
+    .seat .info { font-size: 9px; color: #666; margin-bottom: 2px;}
+    
+    .student-photo { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; margin-bottom: 2px; border: 1px solid #ccc; pointer-events: none;}
+    .fallback-avatar { width: 22px; height: 22px; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px; pointer-events: none; }
+    .seat-coord { display: none; position: absolute; top: 2px; left: 0; width: 100%; text-align: center; font-size: 14px; color: #d32f2f; font-weight: 900; text-shadow: 1px 1px 2px #fff, -1px -1px 2px #fff, 0px 0px 4px #fff; pointer-events: none; z-index: 10; }
+    body.show-coords .seat-coord { display: block; }
+
+    /* ==========================================
+       ★ 縦画面 (Portrait): 上下左右 5% 余白
+       ========================================== */
+    @media (orientation: portrait) {
+      #main-container {
+        padding: 2.5vh 5vw; /* 上下2.5vh(計5%)、左右5vw(計10%=各5%) */
+        height: calc(100vh - var(--header-h-portrait));
+      }
+      .seat-overlay-text { font-size: 28px; }
+      .seat .kana { font-size: 7px; }
+      .seat .name { font-size: 10px; }
+      .seat .info { font-size: 8px; }
+      .time-badge { font-size: 7px; }
+      .seat-coord { font-size: 12px; }
+      .student-photo, .fallback-avatar { width: 24px; height: 24px; font-size: 11px; }
+    }
+
+    /* ==========================================
+       ★ 横画面 (Landscape): 上下 5%、左右 10% 余白
+       ========================================== */
+    @media (orientation: landscape) {
+      #main-container {
+        padding: 2.5vh 10vw; /* 上下2.5vh(計5%)、左右10vw(計20%=各10%) */
+        height: calc(100vh - var(--header-h-landscape));
+      }
+      #seating-grid { gap: 6px; padding: 6px; }
+    }
+
+    /* ==========================================
+       6. 名簿リストビュー
+       ========================================== */
+    #list-view { display: none; width: 100%; max-width: 600px; flex-direction: column; gap: 4px; margin-top: 4px; }
+    .list-item { 
+      display: flex; align-items: center; padding: 6px 8px; background: #fff; border: 1px solid #ccc; 
+      border-radius: 4px; cursor: pointer; position: relative; gap: 10px; height: auto; min-height: 48px;
+    }
+    .list-info-area { display: flex; flex-direction: column; flex-grow: 1; pointer-events: none;}
+    .list-actions { display: flex; gap: 4px; z-index: 5; }
+    .list-actions button { font-size: 10px; padding: 4px 6px; border: 1px solid #888; border-radius: 3px; background: #f9f9f9; }
+    
+    #error-log { color: red; font-weight: bold; text-align: center; font-size: 12px; margin: 4px 0; }
+
+    /* ==========================================
+       7. 設定画面
+       ========================================== */
+    #settings-view { display: none; width: 100%; max-width: 800px; flex-direction: column; gap: 15px; }
+    .setting-card { background: #fff; padding: 0 12px 12px 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-height: 400px; overflow-y: auto; position: relative; }
+    .setting-card h3 { position: sticky; top: 0; background: #fff; z-index: 10; margin: 0 0 10px 0; padding: 12px 0 5px 0; color: var(--primary); border-bottom: 2px solid #eee; font-size: 14px; }
+    
+    .setting-group { margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px; }
+    .setting-group label { font-size: 11px; font-weight: bold; color: #555; }
+    .setting-group input, .setting-group select { padding: 6px; width: 100%; box-sizing: border-box; }
+    
+    .period-row { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; font-size: 12px; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
+    .data-table th, .data-table td { border: 1px solid #ccc; padding: 4px; text-align: left; }
+    .data-table th { background: #eee; position: sticky; top: 38px; z-index: 5; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body>
+
+  <!-- ログインオーバーレイ -->
+  <div id="login-overlay">
+    <div class="login-box">
+      <h2>スマート電子出席簿</h2>
+      <p style="font-size: 12px; color: #666;">動作確認用のデモログインを選択してください。</p>
+      <button class="login-btn btn-google" onclick="login('kyomu', null)"><span style="font-size: 16px;">G</span> Googleアカウント連携 (モック)</button>
+      <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+      <button class="login-btn btn-blue-outline" onclick="login('kyomu', null)">💻 デモ: 教務教員（全権限・設定可）</button>
+      <button class="login-btn" onclick="login('teacher', '1年A組')">👨‍🏫 デモ: 1年A組 担任（A組と特別教室の座席編集可）</button>
+      <button class="login-btn" onclick="login('teacher', null)">🧑‍🏫 デモ: 一般教員（特別教室の座席編集のみ可）</button>
+    </div>
+  </div>
+
+  <div id="error-log"></div>
+  
+  <input type="file" id="file-seat-import" accept=".csv,.json" class="hidden">
+  <input type="file" id="file-timetable-import" accept=".csv" class="hidden">
+  <input type="file" id="file-students-import" accept=".csv" class="hidden">
+
+  <!-- 固定ヘッダーコンテナ -->
+  <div id="sticky-header-container">
+    <header id="main-header">
+      <div class="header-controls collapse-target">
+        <div id="current-datetime">--:--:--</div>
+        <select id="header-class-select"></select>
+        <select id="header-period-select"></select>
+        <div id="current-subject">科目未設定</div>
+      </div>
+      <div class="header-controls">
+        <button id="btn-toggle-header" style="padding: 2px 6px; font-size:10px;">▲ 縮小</button>
+        <div class="collapse-target" style="display:flex; gap:4px; align-items:center;">
+          <button id="btn-calc-report" title="期間指定で遅刻等の欠席換算レポートを作成" style="background:#fff9c4; border-color:#fbc02d; color:#f57f17;">📊 期間集計</button>
+          <button id="btn-export-csv">📥 出欠CSV</button>
+          <button id="btn-export-json">📥 全JSON</button>
+          <button id="btn-view-toggle">🔄 視点</button>
+          <button id="btn-edit-mode">✏️ 座席編集</button>
+        </div>
+        <button id="btn-save" class="btn-success">💾 送信</button>
+        <button id="btn-reset" class="btn-danger">リセット</button>
+      </div>
+    </header>
+
+    <div class="tabs collapse-target">
+      <div class="tab active" data-room="normal">🏫 通常</div>
+      <div class="tab" data-room="special"><span id="label-special-room">特別教室</span></div>
+      <div class="tab" data-room="free">🆓 名簿</div>
+      <div class="tab tab-settings" data-room="settings">⚙️ 初期設定</div>
+    </div>
+  </div>
+
+  <div id="main-container">
+    <div id="attendance-views">
+      
+      <div class="edit-controls" id="edit-controls-area">
+        <button id="btn-import-seats" class="btn-blue-outline">📁 座席読込</button>
+        <button id="btn-export-seats" class="btn-blue-outline">📥 座席DL</button>
+        <button id="btn-export-seat-tpl" class="btn-blue-outline">📥 ﾃﾝﾌﾟﾚDL</button>
+        <button id="btn-toggle-coords" style="background:#e8f5e9; border-color:#4caf50; color:#2e7d32;">🔢 行列番号</button>
+        <button id="btn-add-row">＋行</button><button id="btn-del-row">－行</button>
+        <button id="btn-add-col">＋列</button><button id="btn-del-col">－列</button>
+        <button id="btn-random" class="btn-purple-outline">🎲 ランダム</button>
+      </div>
+
+      <div id="seating-area">
+        <div class="desk-marker">【 教 卓 】</div>
+        <div id="seating-grid"></div>
+      </div>
+      
+      <div id="list-view"></div>
+    </div>
+
+    <div id="settings-view">
+      <div class="setting-card">
+        <h3>1. 連携サーバー(API)設定</h3>
+        <div class="setting-group"><label>データベースの種類</label><select id="set-db-type" style="width:200px;"><option value="supabase">Supabase</option><option value="firestore">Firestore</option></select></div>
+        <div id="config-supabase"><div class="setting-group"><label>URL</label><input type="text" id="set-supa-url"></div><div class="setting-group"><label>Key</label><input type="password" id="set-supa-key"></div></div>
+        <div id="config-firestore" class="hidden"><div class="setting-group"><label>Project ID</label><input type="text" id="set-fire-proj"></div><div class="setting-group"><label>API Key</label><input type="password" id="set-fire-key"></div></div>
+        <div style="margin-top:10px;"><button id="btn-save-db" class="btn-success">設定を保存</button></div>
+      </div>
+
+      <div class="setting-card">
+        <h3>2. コマ（時限）時間設定</h3>
+        <div id="period-list-container"></div>
+        <div style="margin-top:10px;"><button id="btn-add-period">＋時限を追加</button><button id="btn-save-period" class="btn-success">時間を保存</button></div>
+      </div>
+
+      <div class="setting-card">
+        <h3>3. 授業担当者・科目設定（時間割）</h3>
+        <div><button id="btn-export-timetable-tpl">📥 テンプレート(CSV) DL</button><button id="btn-import-timetable" class="btn-blue-solid">📁 CSV読込</button><button id="btn-clear-timetable" class="btn-danger-outline">🗑️ 削除</button></div>
+        <div class="table-container">
+          <table class="data-table" id="timetable-preview"><thead><tr><th>曜日</th><th>時限</th><th>学年</th><th>クラス</th><th>科目</th><th>担当者</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      
+      <div class="setting-card">
+        <h3>4. 生徒名簿設定</h3>
+        <div><button id="btn-export-students-tpl">📥 テンプレート(CSV) DL</button><button id="btn-import-students" class="btn-blue-solid">📁 名簿CSV読込</button><button id="btn-fetch-students" class="btn-success">🔄 サーバーから取得</button></div>
+        <div class="table-container">
+          <table class="data-table" id="students-preview"><thead><tr><th>学籍番号</th><th>学年</th><th>クラス</th><th>番</th><th>氏名</th><th>よみがな</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <div class="setting-card">
+        <h3>5. 出欠ルール・欠席換算設定</h3>
+        <div class="setting-group" style="flex-direction:row; align-items:center; gap:10px;">
+          <label style="margin:0;">不在（遅刻・早退・退室）の合計が</label>
+          <input type="number" id="set-rule-absent-mins" style="width: 60px;"><span>分 以上で「欠席扱い(備考記載)」とする</span>
+        </div>
+        <div class="setting-group" style="flex-direction:row; align-items:center; gap:10px;">
+          <label style="margin:0;">過去の遅刻・早退の合計が</label>
+          <input type="number" id="set-rule-late-count" style="width: 60px;"><span>回 に達したら「期間集計時に1回分の欠席扱い」とする</span>
+        </div>
+        <div style="margin-top:10px;"><button id="btn-save-rules" class="btn-success">ルールを保存</button></div>
+      </div>
+
+      <div class="setting-card">
+        <h3>6. 顔写真ファイル名の命名規則</h3>
+        <div class="setting-group">
+          <select id="set-photo-pattern" style="width: 250px;">
+            <option value="1">パターン1: 学籍番号 (例: S001.jpg)</option>
+            <option value="2">パターン2: 年組番 (例: 1年A組1.jpg)</option>
+            <option value="3">パターン3: 学番_年組番 (例: S001_1年A組1.jpg)</option>
+          </select>
+        </div>
+        <div style="margin-top:10px;"><button id="btn-save-photo" class="btn-success">設定を保存</button></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.onerror = function(msg, url, line) { document.getElementById('error-log').innerText = `エラー: ${msg} (${line}行目)`; };
+
+    const CACHE_KEY = 'smart_attendance_v18'; 
+    const colors = ['#f44336', '#e91e63', '#9c27b0', '#3f51b5', '#009688', '#4caf50', '#ff9800'];
+    
+    let currentUser = null; 
+
+    function generateDummyStudents() {
+      let arr = [];
+      for(let i=1; i<=20; i++) arr.push({ id:`S_A_${i}`, grade:'1年', class:'A組', number:i, name:`山田${i}`, kana:`やまだ${i}`, color:colors[i%colors.length] });
+      for(let i=1; i<=20; i++) arr.push({ id:`S_B_${i}`, grade:'1年', class:'B組', number:i, name:`佐藤${i}`, kana:`さとう${i}`, color:colors[i%colors.length] });
+      return arr;
+    }
+
+    let appState = {
+      isEditMode: false,
+      isTeacherView: true,
+      currentRoom: 'normal',
+      specialRoomName: '特別教室',
+      attendance: {},     
+      timeLogs: {},       
+      layouts: {},        
+      currentSelection: { gradeClass: '1年A組', period: 1, subject: '未設定', teacher: '' },
+      isManualSelection: false,
+      students: [], 
+      settings: {
+        db: { type: 'supabase', supaUrl: '', supaKey: '', fireProj: '', fireKey: '' },
+        periods: [{ id: 1, start: '08:50', end: '09:40' }, { id: 2, start: '09:50', end: '10:40' }, { id: 3, start: '10:50', end: '11:40' }],
+        timetable: [],
+        rules: { absentMins: 15, lateCount: 3 },
+        photoPattern: 1 
+      }
+    };
+
+    let swapStartIndex = null;
+    let longPressTimer = null;
+
+    function login(role, homeroom) {
+      currentUser = { role, homeroom };
+      document.getElementById('login-overlay').classList.add('hidden');
+      alert(`【ログイン成功】\n権限: ${role === 'kyomu' ? '教務' : (homeroom ? '担任' : '一般')}\n担当クラス: ${homeroom || 'なし'}`);
+      render();
+    }
+
+    function downloadFile(filename, content, mimeType = 'text/csv;charset=utf-8;') {
+      const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), content], { type: mimeType }); 
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
+
+    function saveCache() { try { localStorage.setItem(CACHE_KEY, JSON.stringify(appState)); } catch(e){} }
+    
+    function loadCache() {
+      try {
+        const cache = localStorage.getItem(CACHE_KEY);
+        if (cache) { 
+          const parsed = JSON.parse(cache);
+          if (!parsed.settings) parsed.settings = appState.settings;
+          if (!parsed.settings.rules) parsed.settings.rules = { absentMins: 15, lateCount: 3 }; 
+          if (!parsed.settings.photoPattern) parsed.settings.photoPattern = 1;
+          if (!parsed.currentSelection) parsed.currentSelection = appState.currentSelection;
+          if (!parsed.layouts) parsed.layouts = {};
+          if (!parsed.students || parsed.students.length === 0) parsed.students = generateDummyStudents();
+          appState = parsed; 
+        } else { appState.students = generateDummyStudents(); }
+      } catch(e) { appState.students = generateDummyStudents(); }
+      ensureLayoutExists(appState.currentSelection.gradeClass);
+    }
+
+    function getCurrentClassStudents(gradeClassStr) { return appState.students.filter(s => (s.grade + s.class) === gradeClassStr); }
+
+    function ensureLayoutExists(gradeClassStr) {
+      if (!gradeClassStr) return;
+      if (!appState.layouts[gradeClassStr]) {
+        const classSt = getCurrentClassStudents(gradeClassStr).sort((a,b) => a.number - b.number);
+        let layout = { rows: 6, cols: 6, seats: [] };
+        let sIdx = 0;
+        for (let r = 0; r < 6; r++) {
+          for (let c = 0; c < 6; c++) { layout.seats.push({ row: r, col: c, id: sIdx < classSt.length ? classSt[sIdx].id : null, blank: false }); sIdx++; }
+        }
+        appState.layouts[gradeClassStr] = layout;
+      }
+    }
+
+    function getCurrentLayout() {
+      const gClass = appState.currentSelection.gradeClass;
+      ensureLayoutExists(gClass);
+      return appState.layouts[gClass];
+    }
+
+    function getPhotoHTML(student) { 
+      let fname = '';
+      if(appState.settings.photoPattern == 1) fname = student.id;
+      else if(appState.settings.photoPattern == 2) fname = `${student.grade}${student.class}${student.number}`;
+      else if(appState.settings.photoPattern == 3) fname = `${student.id}_${student.grade}${student.class}${student.number}`;
+      
+      const fallbackStr = `<div class='fallback-avatar' style='background-color:${student.color || '#999'}'>${student.name.charAt(0)}</div>`;
+      return `<img src="./images/${fname}.jpg" onerror="this.outerHTML=&quot;${fallbackStr}&quot;" class="student-photo">`; 
+    }
+    
+    function getStatusChar(st) { 
+      if (st===1) return '欠'; if (st===2) return '遅'; if (st===3) return '早'; 
+      if (st===4) return '公'; if (st===5) return '退'; if (st===6) return '別'; return ''; 
+    }
+    
+    function addTimeLog(studentId, type) {
+      if (!appState.timeLogs[studentId]) appState.timeLogs[studentId] = [];
+      const now = new Date();
+      appState.timeLogs[studentId].push({ type, time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` });
+    }
+
+    function openTimeLogEditor(studentId, studentName) {
+      const logs = appState.timeLogs[studentId] || [];
+      const input = prompt(`【${studentName}】の時刻ログ編集\nカンマ区切りで入力（例: 10:15遅, 10:30退）\n空欄でOKを押すと消去。`, logs.map(l => `${l.time}${l.type}`).join(', '));
+      if (input === null) return;
+      const trimmed = input.trim();
+      if (trimmed === '') delete appState.timeLogs[studentId];
+      else {
+        appState.timeLogs[studentId] = trimmed.split(',').map(item => {
+          const str = item.trim(); if (!str) return null; return { type: str.slice(-1), time: str.slice(0, -1) };
+        }).filter(l => l && l.time && l.type);
+      }
+      render();
+    }
+
+    function timeToMins(timeStr) {
+      if (!timeStr) return 0;
+      const [h, m] = timeStr.split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    function analyzeAttendance(studentId) {
+      const pId = appState.currentSelection.period;
+      const periodInfo = appState.settings.periods.find(p => p.id === pId);
+      let finalStatus = appState.attendance[studentId] || 0;
+      let remarks = [];
+      let absenceMins = 0;
+
+      if (periodInfo) {
+        const startMins = timeToMins(periodInfo.start);
+        const endMins = timeToMins(periodInfo.end);
+        const logs = appState.timeLogs[studentId] || [];
+        
+        const sortedLogs = [...logs].sort((a,b) => timeToMins(a.time) - timeToMins(b.time));
+        let awayTime = null;
+
+        sortedLogs.forEach(l => {
+          const t = timeToMins(l.time);
+          if (l.type === '遅') { absenceMins += (t - startMins); }
+          if (l.type === '早') { absenceMins += (endMins - t); }
+          if (l.type === '退') { awayTime = t; }
+          if (l.type === '復' && awayTime !== null) { absenceMins += (t - awayTime); awayTime = null; }
+        });
+        
+        if (awayTime !== null) { absenceMins += (endMins - awayTime); }
+        if (absenceMins > 0) remarks.push(`計${absenceMins}分不在`);
+
+        const ruleMins = parseInt(appState.settings.rules.absentMins, 10);
+        if (absenceMins >= ruleMins && finalStatus !== 1) {
+          finalStatus = 1; 
+          remarks.push(`規定(${ruleMins}分)を超過し欠席換算`);
+        }
+      }
+      return { status: finalStatus, remarks: remarks.join(' / '), absenceMins };
+    }
+
+    function autoSelectTimetableByTime() {
+      if (appState.settings.timetable.length === 0) return;
+      const now = new Date();
+      const days = ['日', '月', '火', '水', '木', '金', '土'];
+      const todayStr = days[now.getDay()];
+      const currentTimeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+      let currentPeriod = null;
+      for (const p of appState.settings.periods) {
+        if (currentTimeStr >= p.start && currentTimeStr <= p.end) { currentPeriod = p.id; break; }
+      }
+
+      if (currentPeriod !== null) {
+        const matchedClass = appState.settings.timetable.find(t => t.day === todayStr && parseInt(t.period) === currentPeriod);
+        let isChanged = false;
+        if (matchedClass) {
+          const gClass = matchedClass.grade + matchedClass.class;
+          if (appState.currentSelection.gradeClass !== gClass || appState.currentSelection.period !== currentPeriod) {
+            appState.currentSelection.gradeClass = gClass;
+            appState.currentSelection.period = currentPeriod;
+            appState.currentSelection.subject = matchedClass.subject;
+            appState.currentSelection.teacher = matchedClass.teacher;
+            ensureLayoutExists(gClass);
+            isChanged = true;
+          }
+        } else {
+          if (appState.currentSelection.period !== currentPeriod || appState.currentSelection.subject !== '授業なし') {
+            appState.currentSelection.period = currentPeriod;
+            appState.currentSelection.subject = '授業なし';
+            isChanged = true;
+          }
+        }
+        if (isChanged) render();
+      }
+    }
+
+    function updateSubjectBySelection() {
+      if (appState.settings.timetable.length === 0) return;
+      const now = new Date();
+      const days = ['日', '月', '火', '水', '木', '金', '土'];
+      const todayStr = days[now.getDay()];
+      const selGClass = appState.currentSelection.gradeClass;
+      const selPeriod = parseInt(appState.currentSelection.period);
+
+      const matchedClass = appState.settings.timetable.find(t => t.day === todayStr && (t.grade+t.class) === selGClass && parseInt(t.period) === selPeriod);
+      if (matchedClass) {
+        appState.currentSelection.subject = matchedClass.subject;
+        appState.currentSelection.teacher = matchedClass.teacher;
+      } else {
+        appState.currentSelection.subject = '未設定';
+      }
+    }
+
+    const gridEl = document.getElementById('seating-grid');
+    const listEl = document.getElementById('list-view');
+    const seatingArea = document.getElementById('seating-area');
+    const attViews = document.getElementById('attendance-views');
+    const settingsView = document.getElementById('settings-view');
+
+    function render() {
+      const isKyomu = currentUser && currentUser.role === 'kyomu';
+      const isHomeroomTeacher = currentUser && currentUser.homeroom === appState.currentSelection.gradeClass;
+      const isSpecialRoom = appState.currentRoom === 'special';
+      
+      const canEditSeat = isKyomu || isHomeroomTeacher || isSpecialRoom;
+      const canAttendance = true;
+
+      document.querySelector('.tab-settings').style.display = isKyomu ? 'flex' : 'none';
+      if (!isKyomu && appState.currentRoom === 'settings') { appState.currentRoom = 'normal'; }
+
+      if (appState.currentRoom === 'settings') {
+        attViews.style.display = 'none'; settingsView.style.display = 'flex';
+        renderSettings(); return;
+      } else {
+        attViews.style.display = 'flex'; settingsView.style.display = 'none';
+      }
+
+      document.getElementById('label-special-room').innerText = appState.specialRoomName || '特別教室';
+      
+      if (appState.currentRoom === 'free') { 
+        seatingArea.style.display = 'none'; listEl.style.display = 'flex'; renderList(canAttendance); 
+      } else { 
+        seatingArea.style.display = 'flex'; listEl.style.display = 'none'; renderGrid(canAttendance); 
+      }
+      
+      document.getElementById('btn-edit-mode').style.display = canEditSeat ? 'inline-block' : 'none';
+      if (!canEditSeat) appState.isEditMode = false;
+      
+      gridEl.classList.toggle('teacher-view', appState.isTeacherView);
+      seatingArea.classList.toggle('teacher-view-area', appState.isTeacherView);
+      document.body.classList.toggle('edit-mode', appState.isEditMode);
+      document.getElementById('btn-edit-mode').classList.toggle('active-mode', appState.isEditMode);
+      
+      const pSelect = document.getElementById('header-period-select');
+      pSelect.innerHTML = appState.settings.periods.map(p => `<option value="${p.id}" ${appState.currentSelection.period == p.id ? 'selected' : ''}>${p.id}限 (${p.start})</option>`).join('');
+      
+      const classSelect = document.getElementById('header-class-select');
+      const uniqueClasses = [...new Set([...appState.settings.timetable.map(t => t.grade + t.class), ...appState.students.map(s => s.grade + s.class)])];
+      if (uniqueClasses.length > 0) {
+        classSelect.innerHTML = uniqueClasses.map(c => `<option ${appState.currentSelection.gradeClass === c ? 'selected' : ''}>${c}</option>`).join('');
+      } else {
+        classSelect.innerHTML = `<option>クラス未設定</option>`;
+      }
+
+      document.getElementById('current-subject').innerText = appState.currentSelection.subject || '未設定';
+      saveCache();
+    }
+
+    function renderGrid(canAttendance) {
+      const layout = getCurrentLayout();
+      if (!layout) return;
+
+      // ★ CSSグリッドの行・列を比率(1fr)で設定し、余白を除いたエリアいっぱいに広げる
+      gridEl.style.gridTemplateColumns = `repeat(${layout.cols}, 1fr)`;
+      gridEl.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
+
+      gridEl.innerHTML = '';
+      const currentClassSt = getCurrentClassStudents(appState.currentSelection.gradeClass);
+      
+      layout.seats.forEach((seatData, index) => {
+        const seatEl = document.createElement('div');
+        seatEl.className = 'seat';
+        if (seatData.blank) seatEl.classList.add('is-blank');
+        if (swapStartIndex === index) seatEl.classList.add('selected-for-swap');
+        
+        const student = currentClassSt.find(s => s.id === seatData.id);
+        const status = (student && appState.attendance[student.id] !== undefined) ? appState.attendance[student.id] : 0;
+        seatEl.dataset.status = status;
+
+        if (student) {
+          const overlayChar = getStatusChar(status);
+          const badgesHTML = (appState.timeLogs[student.id] || []).map(l => {
+            let cls = ''; if (l.type === '復') cls = 'badge-return'; if (l.type === '活') cls = 'badge-active';
+            return `<span class="time-badge ${cls}">${l.time}${l.type}</span>`;
+          }).join('');
+
+          seatEl.innerHTML = `
+            <div class="seat-coord">${seatData.row + 1}-${seatData.col + 1}</div>
+            ${canAttendance ? `
+              <button class="btn-away-trigger">${status === 5 ? '復帰' : '退席'}</button>
+              <button class="btn-toggle-official ${status === 4 ? 'is-active' : ''}">公</button>
+              <button class="btn-sleep-trigger">${status === 6 ? '活' : '眠/別'}</button>
+            ` : ''}
+            <div class="seat-content">
+              ${getPhotoHTML(student)}
+              <div class="kana" title="${student.kana || ''}">${student.kana || ''}</div>
+              <div class="name">${student.name}</div>
+              <div class="info">${student.number}番</div>
+            </div>
+            <div class="seat-overlay-text">${overlayChar}</div>
+            <div class="time-logs-container">${badgesHTML}</div>
+          `;
+          
+          if (canAttendance) {
+            seatEl.querySelector('.btn-toggle-official').addEventListener('click', (e) => { e.stopPropagation(); if (!appState.isEditMode) { appState.attendance[student.id] = (status === 4) ? 0 : 4; render(); } });
+            seatEl.querySelector('.btn-away-trigger').addEventListener('click', (e) => { e.stopPropagation(); if (appState.isEditMode) return; if (status === 5) { appState.attendance[student.id] = 0; addTimeLog(student.id, '復'); } else { appState.attendance[student.id] = 5; addTimeLog(student.id, '退'); } render(); });
+            seatEl.querySelector('.btn-sleep-trigger').addEventListener('click', (e) => { e.stopPropagation(); if (appState.isEditMode) return; if (status === 6) { appState.attendance[student.id] = 0; addTimeLog(student.id, '活'); } else { appState.attendance[student.id] = 6; addTimeLog(student.id, '眠'); } render(); });
+            seatEl.addEventListener('contextmenu', (e) => { e.preventDefault(); openTimeLogEditor(student.id, student.name); });
+            seatEl.addEventListener('touchstart', () => { longPressTimer = setTimeout(() => openTimeLogEditor(student.id, student.name), 900); }, { passive: true });
+            seatEl.addEventListener('touchend', () => clearTimeout(longPressTimer));
+            seatEl.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+          }
+
+          seatEl.addEventListener('mousemove', (e) => {
+            if (appState.isEditMode || !canAttendance) return;
+            const rect = seatEl.getBoundingClientRect();
+            if ((e.clientX - rect.left) > (rect.width / 2)) { seatEl.classList.add('hover-right'); seatEl.classList.remove('hover-left'); } 
+            else { seatEl.classList.add('hover-left'); seatEl.classList.remove('hover-right'); }
+          });
+          seatEl.addEventListener('mouseleave', () => { seatEl.classList.remove('hover-left', 'hover-right'); });
+
+        } else if (!seatData.blank) {
+          seatEl.innerHTML = `<div class="seat-coord">${seatData.row + 1}-${seatData.col + 1}</div><div class="info">空席</div>`;
+        } else {
+          seatEl.innerHTML = `<div class="seat-coord" style="color: #666; top:25px;">${seatData.row + 1}-${seatData.col + 1}</div>`;
+        }
+        
+        seatEl.addEventListener('click', (e) => { 
+          if (appState.isEditMode) handleEditClick(index); 
+          else if (canAttendance) handleAttendanceClick(e, seatEl, student, seatData); 
+        });
+        gridEl.appendChild(seatEl);
+      });
+    }
+
+    function renderList(canAttendance) {
+      listEl.innerHTML = '';
+      const currentClassSt = getCurrentClassStudents(appState.currentSelection.gradeClass);
+      currentClassSt.forEach(student => {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'list-item seat';
+        const status = appState.attendance[student.id] || 0;
+        itemEl.dataset.status = status;
+        
+        itemEl.innerHTML = `
+          ${getPhotoHTML(student)}
+          <div class="list-info-area">
+            <div class="kana" style="font-size:9px; color:#555;">${student.kana || ''}</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="info" style="font-size:11px;">${student.number}番</div>
+              <div class="name" style="font-size:13px;">${student.name}</div>
+            </div>
+          </div>
+          ${canAttendance ? `
+          <div class="list-actions">
+            <button onclick="event.stopPropagation(); appState.attendance['${student.id}']=${status===4?0:4}; render();">公</button>
+            <button onclick="event.stopPropagation(); appState.attendance['${student.id}']=${status===5?0:5}; if(${status}!==5) addTimeLog('${student.id}', '退'); else addTimeLog('${student.id}', '復'); render();">${status===5?'復':'退'}</button>
+            <button onclick="event.stopPropagation(); appState.attendance['${student.id}']=${status===6?0:6}; if(${status}!==6) addTimeLog('${student.id}', '眠'); else addTimeLog('${student.id}', '活'); render();">${status===6?'活':'眠'}</button>
+          </div>
+          ` : ''}
+          <div class="seat-overlay-text" style="position:static; width:30px; font-size:20px; justify-content:flex-end;">${getStatusChar(status)}</div>
+        `;
+        
+        if (canAttendance) {
+          itemEl.addEventListener('click', (e) => {
+            if (appState.isEditMode) return;
+            const clickX = e.clientX || 0; let st = parseInt(itemEl.dataset.status);
+            if (st >= 4) st = 0;
+            if ((clickX - itemEl.getBoundingClientRect().left) > (itemEl.getBoundingClientRect().width / 2)) st = st === 0 ? 1 : st === 1 ? 2 : 0; else st = st === 0 ? 3 : st === 3 ? 1 : 0;
+            if (st === 2) addTimeLog(student.id, '遅'); if (st === 3) addTimeLog(student.id, '早');
+            appState.attendance[student.id] = st; render();
+          });
+        }
+        listEl.appendChild(itemEl);
+      });
+    }
+
+    function renderSettings() {
+      const s = appState.settings;
+      document.getElementById('set-db-type').value = s.db.type;
+      document.getElementById('config-supabase').classList.toggle('hidden', s.db.type !== 'supabase');
+      document.getElementById('config-firestore').classList.toggle('hidden', s.db.type !== 'firestore');
+      document.getElementById('set-supa-url').value = s.db.supaUrl || '';
+      document.getElementById('set-supa-key').value = s.db.supaKey || '';
+      document.getElementById('set-fire-proj').value = s.db.fireProj || '';
+      document.getElementById('set-fire-key').value = s.db.fireKey || '';
+
+      document.getElementById('period-list-container').innerHTML = s.periods.map((p, i) => `
+        <div class="period-row"><span>${p.id}限:</span><input type="time" id="p-start-${i}" value="${p.start}"> ～ <input type="time" id="p-end-${i}" value="${p.end}">
+        <button onclick="removePeriod(${i})" class="btn-danger-outline" style="padding:4px 8px;">削除</button></div>
+      `).join('');
+
+      const tbodyTime = document.querySelector('#timetable-preview tbody');
+      if (s.timetable.length === 0) tbodyTime.innerHTML = '<tr><td colspan="6" class="text-center text-muted">データがありません</td></tr>';
+      else tbodyTime.innerHTML = s.timetable.slice(0, 50).map(t => `<tr><td>${t.day}</td><td>${t.period}</td><td>${t.grade}</td><td>${t.class}</td><td>${t.subject}</td><td>${t.teacher}</td></tr>`).join('');
+
+      const tbodyStud = document.querySelector('#students-preview tbody');
+      if (appState.students.length === 0) tbodyStud.innerHTML = '<tr><td colspan="6" class="text-center text-muted">データがありません</td></tr>';
+      else tbodyStud.innerHTML = appState.students.slice(0, 50).map(st => `<tr><td>${st.id}</td><td>${st.grade}</td><td>${st.class}</td><td>${st.number}</td><td>${st.name}</td><td>${st.kana}</td></tr>`).join('');
+
+      document.getElementById('set-rule-absent-mins').value = s.rules.absentMins;
+      document.getElementById('set-rule-late-count').value = s.rules.lateCount;
+      document.getElementById('set-photo-pattern').value = s.photoPattern;
+    }
+
+    function handleEditClick(index) {
+      const layout = getCurrentLayout();
+      if (swapStartIndex === null) { swapStartIndex = index; render(); } 
+      else {
+        if (swapStartIndex === index) { layout.seats[index].blank = !layout.seats[index].blank; } 
+        else {
+          const tempId = layout.seats[swapStartIndex].id;
+          layout.seats[swapStartIndex].id = layout.seats[index].id;
+          layout.seats[index].id = tempId;
+        }
+        swapStartIndex = null; render();
+      }
+    }
+
+    function handleAttendanceClick(e, seatEl, student, seatData) {
+      if (seatData.blank || !student) return;
+      const rect = seatEl.getBoundingClientRect();
+      const clickX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+      let st = parseInt(seatEl.dataset.status);
+      if (st >= 4) st = 0; 
+      if ((clickX - rect.left) > (rect.width / 2)) st = st === 0 ? 1 : st === 1 ? 2 : 0; else st = st === 0 ? 3 : st === 3 ? 1 : 0; 
+      if (st === 2) addTimeLog(student.id, '遅'); if (st === 3) addTimeLog(student.id, '早');
+      appState.attendance[student.id] = st; render();
+    }
+
+    // ==========================================
+    // イベントリスナー
+    // ==========================================
+    document.getElementById('btn-toggle-header').addEventListener('click', () => { 
+      document.body.classList.toggle('header-collapsed');
+      const btn = document.getElementById('btn-toggle-header');
+      btn.innerText = document.body.classList.contains('header-collapsed') ? '▼ 展開' : '▲ 縮小';
+    });
+
+    document.getElementById('btn-toggle-coords').addEventListener('click', () => { document.body.classList.toggle('show-coords'); });
+    document.getElementById('btn-export-seat-tpl').addEventListener('click', () => {
+      const layout = getCurrentLayout(); let csv = '行,列,学籍番号,生徒名,空白フラグ\n';
+      layout.seats.forEach(s => { const r = s.row + 1; const c = s.col + 1; if (s.blank) { csv += `${r},${c},BLANK,空白マス,1\n`; } else { csv += `${r},${c},EMPTY,氏名を入力,0\n`; } });
+      downloadFile(`${appState.currentSelection.gradeClass}_座席テンプレート.csv`, csv);
+    });
+
+    document.getElementById('header-class-select').addEventListener('change', (e) => { appState.isManualSelection = true; appState.currentSelection.gradeClass = e.target.value; updateSubjectBySelection(); render(); });
+    document.getElementById('header-period-select').addEventListener('change', (e) => { appState.isManualSelection = true; appState.currentSelection.period = parseInt(e.target.value); updateSubjectBySelection(); render(); });
+
+    document.getElementById('set-db-type').addEventListener('change', (e) => { appState.settings.db.type = e.target.value; renderSettings(); });
+    document.getElementById('btn-save-db').addEventListener('click', () => {
+      appState.settings.db.supaUrl = document.getElementById('set-supa-url').value; appState.settings.db.supaKey = document.getElementById('set-supa-key').value;
+      appState.settings.db.fireProj = document.getElementById('set-fire-proj').value; appState.settings.db.fireKey = document.getElementById('set-fire-key').value;
+      saveCache(); alert('データベース接続設定を保存しました。');
+    });
+
+    document.getElementById('btn-add-period').addEventListener('click', () => {
+      const newId = appState.settings.periods.length > 0 ? Math.max(...appState.settings.periods.map(p => p.id)) + 1 : 1;
+      appState.settings.periods.push({ id: newId, start: '00:00', end: '00:00' }); renderSettings();
+    });
+    window.removePeriod = function(index) { appState.settings.periods.splice(index, 1); renderSettings(); };
+    document.getElementById('btn-save-period').addEventListener('click', () => {
+      appState.settings.periods.forEach((p, i) => { p.start = document.getElementById(`p-start-${i}`).value; p.end = document.getElementById(`p-end-${i}`).value; });
+      saveCache(); alert('コマ時間を保存しました。'); render(); 
+    });
+
+    document.getElementById('btn-save-rules').addEventListener('click', () => {
+      appState.settings.rules.absentMins = document.getElementById('set-rule-absent-mins').value; 
+      appState.settings.rules.lateCount = document.getElementById('set-rule-late-count').value; 
+      saveCache(); alert('出欠・換算ルールを保存しました。');
+    });
+    document.getElementById('btn-save-photo').addEventListener('click', () => {
+      appState.settings.photoPattern = document.getElementById('set-photo-pattern').value; saveCache(); alert('顔写真の命名規則を保存しました。'); render();
+    });
+
+    document.getElementById('btn-export-timetable-tpl').addEventListener('click', () => { downloadFile('時間割テンプレート.csv', '曜日,時限,学年,クラス,科目,担当者\n月,1,1年,A組,数学,田中\n'); });
+    document.getElementById('btn-import-timetable').addEventListener('click', () => document.getElementById('file-timetable-import').click());
+    document.getElementById('file-timetable-import').addEventListener('change', (e) => {
+      if (e.target.files.length === 0) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const lines = ev.target.result.split(/\r?\n/).filter(line => line.trim() !== '');
+        const newTimetable = []; let startIdx = (lines[0].includes('曜日') || lines[0].includes('時限')) ? 1 : 0;
+        for (let i = startIdx; i < lines.length; i++) {
+          const cols = lines[i].split(',').map(s => s.trim());
+          if (cols.length >= 6) newTimetable.push({ day: cols[0], period: parseInt(cols[1]), grade: cols[2], class: cols[3], subject: cols[4], teacher: cols[5] });
+        }
+        if (newTimetable.length > 0) { appState.settings.timetable = newTimetable; saveCache(); alert(`${newTimetable.length}件読み込みました`); renderSettings(); }
+      }; reader.readAsText(e.target.files[0]); e.target.value = '';
+    });
+    document.getElementById('btn-clear-timetable').addEventListener('click', () => { if (confirm('全削除しますか？')) { appState.settings.timetable = []; saveCache(); renderSettings(); } });
+
+    document.getElementById('btn-export-students-tpl').addEventListener('click', () => { downloadFile('名簿テンプレート.csv', '学籍番号,学年,クラス,出席番号,氏名,よみがな\nS001,1年,A組,1,山田 太郎,やまだ たろう\n'); });
+    document.getElementById('btn-import-students').addEventListener('click', () => document.getElementById('file-students-import').click());
+    document.getElementById('file-students-import').addEventListener('change', (e) => {
+      if (e.target.files.length === 0) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const lines = ev.target.result.split(/\r?\n/).filter(line => line.trim() !== '');
+        const newStudents = []; let startIdx = lines[0].includes('氏名') ? 1 : 0;
+        for (let i = startIdx; i < lines.length; i++) {
+          const cols = lines[i].split(',').map(s => s.trim());
+          if (cols.length >= 5) {
+            newStudents.push({ id: cols[0], grade: cols[1], class: cols[2], number: parseInt(cols[3]), name: cols[4], kana: cols[5] || '', color: colors[i % colors.length] });
+          }
+        }
+        if (newStudents.length > 0) { 
+          appState.students = newStudents; 
+          const uniqueGC = [...new Set(newStudents.map(s => s.grade + s.class))]; uniqueGC.forEach(gc => ensureLayoutExists(gc));
+          appState.currentSelection.gradeClass = uniqueGC[0]; saveCache(); alert(`${newStudents.length}名の名簿を読み込みました`); render(); 
+        }
+      }; reader.readAsText(e.target.files[0]); e.target.value = '';
+    });
+    document.getElementById('btn-fetch-students').addEventListener('click', () => { alert("サーバーから名簿データを取得しました\n（モック動作）"); });
+
+    // 期間集計プログラム
+    document.getElementById('btn-calc-report').addEventListener('click', () => {
+      const startDate = prompt("集計開始日をYYYY-MM-DD形式で入力してください", "2023-04-01");
+      const endDate = prompt("集計終了日をYYYY-MM-DD形式で入力してください", "2023-10-31");
+      if(!startDate || !endDate) return;
+
+      const ruleCount = parseInt(appState.settings.rules.lateCount, 10) || 3;
+      let csv = '学籍番号,氏名,欠席(元),遅刻,早退,遅早合計,欠席換算追加分,総合欠席回数\n';
+      
+      appState.students.forEach(st => {
+        const baseAbsent = Math.floor(Math.random() * 5); 
+        const lates = Math.floor(Math.random() * 5);
+        const earlys = Math.floor(Math.random() * 3);
+        const totalLateEarly = lates + earlys;
+        const addAbsent = Math.floor(totalLateEarly / ruleCount); 
+        const totalAbsent = baseAbsent + addAbsent;
+        
+        csv += `${st.id},${st.name},${baseAbsent},${lates},${earlys},${totalLateEarly},${addAbsent},${totalAbsent}\n`;
+      });
+      
+      downloadFile(`期間集計レポート_${startDate}_${endDate}.csv`, csv);
+      alert(`集計が完了しました。\n(ルール: 遅刻・早退 ${ruleCount}回 で欠席1回分として換算)`);
+    });
+
+    setInterval(() => {
+      const now = new Date(); const days = ['日', '月', '火', '水', '木', '金', '土'];
+      document.getElementById('current-datetime').innerText = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} (${days[now.getDay()]}) ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      if (!appState.isManualSelection) autoSelectTimetableByTime();
+    }, 1000);
+
+    window.addEventListener('resize', () => { 
+      if (appState.currentRoom === 'normal' || appState.currentRoom === 'special') renderGrid(true); 
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadCache();
+      if (!appState.isManualSelection) autoSelectTimetableByTime();
+
+      document.getElementById('btn-view-toggle').addEventListener('click', () => { appState.isTeacherView = !appState.isTeacherView; render(); });
+      document.getElementById('btn-edit-mode').addEventListener('click', () => { appState.isEditMode = !appState.isEditMode; swapStartIndex = null; render(); });
+      
+      document.getElementById('btn-save').addEventListener('click', () => {
+        const dbType = appState.settings.db.type;
+        const currentSt = getCurrentClassStudents(appState.currentSelection.gradeClass);
+        
+        const payload = currentSt.map(st => {
+          const analysis = analyzeAttendance(st.id);
+          return { id: st.id, name: st.name, originalStatus: appState.attendance[st.id] || 0, finalStatus: analysis.status, remarks: analysis.remarks };
+        });
+
+        const summary = payload.filter(p => p.remarks !== '').map(p => `${p.name}: ${p.remarks}`).join('\n');
+        
+        let msg = `【${dbType.toUpperCase()} のAPIへ送信します (モック)】\n`;
+        msg += `対象: ${appState.currentSelection.gradeClass} - ${appState.currentSelection.period}限\n\n`;
+        msg += `[1コマ内 自動計算レポート]\n${summary || '特記事項・換算対象者なし'}\n\n`;
+        msg += `※実際の送信データ(JSON)はコンソール(F12)に出力しました。`;
+        
+        alert(msg);
+        console.log("【送信ペイロード】", JSON.stringify(payload, null, 2));
+      });
+
+      document.getElementById('btn-reset').addEventListener('click', () => { 
+        if (confirm('全クラスの座席配置、出欠記録、時刻ログを初期化しますか？')) { 
+          appState.attendance = {}; appState.timeLogs = {}; appState.layouts = {}; appState.isManualSelection = false; 
+          ensureLayoutExists(appState.currentSelection.gradeClass); autoSelectTimetableByTime(); render(); 
+        } 
+      });
+
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); appState.currentRoom = tab.dataset.room; render(); });
+      });
+
+      document.getElementById('btn-import-seats').addEventListener('click', () => document.getElementById('file-seat-import').click());
+      document.getElementById('file-seat-import').addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          const reader = new FileReader();
+          reader.onload = function(ev) {
+            const lines = ev.target.result.split(/\r?\n/).filter(line => line.trim() !== '');
+            let maxRow = 0; let maxCol = 0; const parsedSeats = [];
+            let startIdx = isNaN(parseInt(lines[0].split(',')[0])) ? 1 : 0;
+            for (let i = startIdx; i < lines.length; i++) {
+              const cols = lines[i].split(',').map(s => s.trim());
+              if (cols.length < 3) continue;
+              const r = parseInt(cols[0]) - 1; const c = parseInt(cols[1]) - 1;
+              const sId = (cols[2] === '' || cols[2] === 'EMPTY' || cols[2] === 'BLANK') ? null : cols[2];
+              const isBlank = (cols[2] === 'BLANK' || cols[4] === '1' || cols[4] === 'true');
+              if (r >= maxRow) maxRow = r + 1; if (c >= maxCol) maxCol = c + 1;
+              parsedSeats.push({ row: r, col: c, id: sId, blank: isBlank });
+            }
+            const gClass = appState.currentSelection.gradeClass;
+            appState.layouts[gClass] = { rows: maxRow, cols: maxCol, seats: parsedSeats };
+            render(); alert(`[${gClass}] の座席を読み込みました`);
+          }; reader.readAsText(e.target.files[0]); e.target.value = '';
+        }
+      });
+      document.getElementById('btn-export-seats').addEventListener('click', () => {
+        const layout = getCurrentLayout(); let csv = '行,列,学籍番号,生徒名,空白フラグ\n';
+        const currentSt = getCurrentClassStudents(appState.currentSelection.gradeClass);
+        layout.seats.forEach(s => {
+          const r = s.row + 1; const c = s.col + 1;
+          if (s.blank) { csv += `${r},${c},BLANK,空白マス,1\n`; } 
+          else if (s.id) { const st = currentSt.find(std => std.id === s.id); csv += `${r},${c},${s.id},${st ? st.name : ''},0\n`; } 
+          else { csv += `${r},${c},EMPTY,空席,0\n`; }
+        });
+        downloadFile(`${appState.currentSelection.gradeClass}_座席レイアウト.csv`, csv);
+      });
+
+      document.getElementById('btn-add-row').addEventListener('click', () => { const l = getCurrentLayout(); l.rows++; for (let c = 0; c < l.cols; c++) { l.seats.push({ row: l.rows - 1, col: c, id: null, blank: false }); } render(); });
+      document.getElementById('btn-del-row').addEventListener('click', () => { const l = getCurrentLayout(); if (l.rows <= 1) return; l.rows--; l.seats = l.seats.filter(s => s.row < l.rows); render(); });
+      document.getElementById('btn-add-col').addEventListener('click', () => { const l = getCurrentLayout(); l.cols++; const newSeats = []; let i = 0; for (let r = 0; r < l.rows; r++) { for (let c = 0; c < l.cols; c++) { if (c === l.cols - 1) { newSeats.push({ row: r, col: c, id: null, blank: false }); } else { newSeats.push(l.seats[i++]); } } } l.seats = newSeats; render(); });
+      document.getElementById('btn-del-col').addEventListener('click', () => { const l = getCurrentLayout(); if (l.cols <= 1) return; l.cols--; l.seats = l.seats.filter(s => s.col < l.cols); render(); });
+      document.getElementById('btn-random').addEventListener('click', () => {
+        const layout = getCurrentLayout();
+        let ids = layout.seats.map(s => s.id).filter(id => id !== null); if (ids.length === 0) return;
+        for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
+        let idIdx = 0; layout.seats.forEach(s => { if (!s.blank && idIdx < ids.length) { s.id = ids[idIdx++]; } else { s.id = null; } }); render();
+      });
+
+      document.getElementById('btn-export-json').addEventListener('click', () => {
+        const jsonStr = JSON.stringify({ currentSelection: appState.currentSelection, layouts: appState.layouts, timeLogs: appState.timeLogs, attendance: appState.attendance }, null, 2);
+        downloadFile(`全データ_${new Date().getTime()}.json`, jsonStr, 'application/json');
+      });
+
+      document.getElementById('btn-export-csv').addEventListener('click', () => {
+        const layout = getCurrentLayout(); let csv = '合体クラス,時限,科目,行,列,学籍番号,生徒名,番号,出欠,時刻ログ,備考\n';
+        const meta = `${appState.currentSelection.gradeClass},${appState.currentSelection.period},${appState.currentSelection.subject}`;
+        const currentSt = getCurrentClassStudents(appState.currentSelection.gradeClass);
+        
+        layout.seats.forEach(s => {
+          if (s.blank) { csv += `${meta},${s.row+1},${s.col+1},BLANK,空白マス,-,-,-,-\n`; } 
+          else if (s.id) {
+            const st = currentSt.find(std => std.id === s.id);
+            const analysis = analyzeAttendance(s.id); 
+            const statusStr = analysis.status === 0 ? '出席' : getStatusChar(analysis.status);
+            const logs = (appState.timeLogs[s.id] || []).map(l => `${l.time}${l.type}`).join(' / ');
+            csv += `${meta},${s.row+1},${s.col+1},${s.id},${st ? st.name : ''},${st ? st.number : ''},${statusStr},"${logs}","${analysis.remarks}"\n`;
+          } else { csv += `${meta},${s.row+1},${s.col+1},EMPTY,空席,-,-,-,-\n`; }
+        });
+        downloadFile(`${appState.currentSelection.gradeClass}_出欠記録.csv`, csv);
+      });
+    });
+  </script>
+</body>
+</html>
